@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from guardrail.audit import AuditLog
 from guardrail.executors import run_shell
@@ -43,6 +44,9 @@ def build_server(gateway: Gateway) -> MCPServer:
     def shell(command: str) -> str:
         """Run a shell command. The guardrail policy may block, preview, or escalate it."""
         outcome = gateway.handle(ToolCall(tool="shell", arguments={"command": command}))
+        if not outcome.executed:
+            # Refused calls are errors, so the agent can tell them apart from success.
+            raise ToolError(format_outcome(outcome))
         return format_outcome(outcome)
 
     return server
