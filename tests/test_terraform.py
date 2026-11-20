@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from guardrail.executors import run_terraform, run_tool
+from guardrail.executors import make_executor, run_terraform
 from guardrail.models import Decision, ToolCall
 from guardrail.policy import load_policy
 
@@ -138,11 +138,12 @@ def test_missing_terraform_is_an_execution_error(monkeypatch):
         run_terraform(tf("plan"))
 
 
-def test_run_tool_dispatches_by_tool_name(recorder):
-    assert run_tool(tf("plan")).startswith("exit code: 0")
+def test_executor_dispatches_by_tool_name(recorder):
+    execute = make_executor("none")
+    assert execute(tf("plan")).startswith("exit code: 0")
     assert recorder.argv[1] == "plan"
     with pytest.raises(ValueError, match="no executor"):
-        run_tool(ToolCall(tool="sql", arguments={}))
+        execute(ToolCall(tool="sql", arguments={}))
 
 
 # --- Server behaviour (blocked calls never reach Terraform) ---

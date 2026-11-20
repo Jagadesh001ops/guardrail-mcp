@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import subprocess
 
+from collections.abc import Callable
 from pathlib import Path
 
 from guardrail.models import ExecutionError, ToolCall
+from guardrail.sandbox import run_in_sandbox
 
 DEFAULT_TIMEOUT_SECONDS = 30
 TERRAFORM_ACTIONS = {"plan", "apply", "destroy"}
@@ -25,13 +27,35 @@ def _run(argv: list[str], program: str, timeout: float, **kwargs) -> subprocess.
         raise ExecutionError(f"could not run {program}: {exc.strerror or exc}") from None
 
 
-def run_tool(call: ToolCall) -> str:
-    """Dispatch an allowed call to the executor for its tool."""
-    if call.tool == "shell":
-        return run_shell(call)
-    if call.tool == "terraform":
-        return run_terraform(call)
-    raise ValueError(f"no executor for tool {call.tool!r}")
+SHELL_SANDBOX_MODES = {"docker", "none"}
+
+
+def make_executor(shell_sandbox: str = "docker") -> Callable[[ToolCall], str]:
+    """Build the function that carries out allowed calls.
+
+    shell_sandbox="docker" (default) runs shell commands in a container.
+    shell_sandbox="none" runs them directly on this machine. Use only for development.
+    """
+    if shell_sandbox not in SHELL_SANDBOX_MODES:
+        raise ValueError(f"shell_sandbox must be one of {sorted(SHELL_SANDBOX_MODES)}, not {shell_sandbox!r}")
+
+    def execute(call: ToolCall) -> str:
+        if call.tool == "shell":
+            if shell_sandbox == "docker":
+                return _shell_in_sandbox(call)
+            return run_shell(call)
+        if call.tool == "terraform":
+            return run_terraform(call)
+        raise ValueError(f"no executor for tool {call.tool!r}")
+
+    return execute
+
+
+def _shell_in_sandbox(call: ToolCall) -> str:
+    command = call.arguments.get("command")
+    if not isinstance(command, str):
+        raise ValueError("shell call needs a string 'command' argument")
+    return run_in_sandbox(command)
 
 
 def run_shell(call: ToolCall, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> str:

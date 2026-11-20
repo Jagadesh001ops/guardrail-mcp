@@ -40,7 +40,8 @@ def test_format_outcome_for_refused_call(decision, prefix):
 
 
 def test_shell_tool_runs_allowed_command(tmp_path):
-    server = build_server(make_gateway(POLICY, tmp_path / "audit.jsonl"))
+    # Host execution keeps this test independent of Docker. The sandbox has its own tests.
+    server = build_server(make_gateway(POLICY, tmp_path / "audit.jsonl", shell_sandbox="none"))
     result = asyncio.run(server.call_tool("shell", {"command": "echo hello"}))
     assert "hello" in text_of(result)
 
@@ -66,6 +67,7 @@ def test_stdio_client_can_call_tools_end_to_end(tmp_path):
         env={
             "GUARDRAIL_POLICY": str(POLICY),
             "GUARDRAIL_AUDIT_LOG": str(audit_path),
+            "GUARDRAIL_SHELL_SANDBOX": "none",  # keeps this transport test independent of Docker
             "PATH": os.environ.get("PATH", ""),
             "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
         },

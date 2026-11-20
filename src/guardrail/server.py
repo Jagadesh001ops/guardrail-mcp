@@ -7,6 +7,7 @@ the policy, the audit log, and only then the executor.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -15,7 +16,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from guardrail.approvals import ApprovalStore
 from guardrail.audit import AuditLog
-from guardrail.executors import run_tool
+from guardrail.executors import make_executor
 from guardrail.gateway import DEFAULT_APPROVAL_TIMEOUT_SECONDS, Gateway, Outcome
 from guardrail.models import ExecutionError, ToolCall
 from guardrail.policy import load_policy
@@ -77,18 +78,23 @@ def make_gateway(
     audit_path: str | Path | None = None,
     approvals_dir: str | Path | None = None,
     approval_timeout: float | None = None,
+    shell_sandbox: str | None = None,
 ) -> Gateway:
     policy_path = policy_path or os.environ.get("GUARDRAIL_POLICY", DEFAULT_POLICY_PATH)
     audit_path = audit_path or os.environ.get("GUARDRAIL_AUDIT_LOG", DEFAULT_AUDIT_PATH)
     approvals_dir = approvals_dir or os.environ.get("GUARDRAIL_APPROVALS_DIR", DEFAULT_APPROVALS_DIR)
+    shell_sandbox = shell_sandbox or os.environ.get("GUARDRAIL_SHELL_SANDBOX", "docker")
     if approval_timeout is None:
         approval_timeout = float(
             os.environ.get("GUARDRAIL_APPROVAL_TIMEOUT", DEFAULT_APPROVAL_TIMEOUT_SECONDS)
         )
+    if shell_sandbox == "none":
+        # Writing to stderr keeps stdout free for the MCP protocol.
+        sys.stderr.write("WARNING: GUARDRAIL_SHELL_SANDBOX=none; shell commands run on this machine.\n")
     return Gateway(
         load_policy(policy_path),
         AuditLog(audit_path),
-        executor=run_tool,
+        executor=make_executor(shell_sandbox),
         approvals=ApprovalStore(approvals_dir),
         approval_timeout=approval_timeout,
     )
