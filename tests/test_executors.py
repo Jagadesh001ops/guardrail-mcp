@@ -1,3 +1,4 @@
+import subprocess
 import sys
 
 import pytest
@@ -27,6 +28,17 @@ def test_timeout_is_reported_not_raised():
     command = f'"{sys.executable}" -c "import time; time.sleep(5)"'
     output = run_shell(shell(command), timeout=0.5)
     assert "timed out" in output
+
+
+def test_missing_shell_program_is_an_execution_error(monkeypatch):
+    from guardrail.models import ExecutionError
+
+    def missing(*a, **k):
+        raise FileNotFoundError(2, "not found")
+
+    monkeypatch.setattr(subprocess, "run", missing)
+    with pytest.raises(ExecutionError, match="shell is not installed"):
+        run_shell(shell("ls"))
 
 
 def test_rejects_other_tools():

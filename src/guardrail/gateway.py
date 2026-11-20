@@ -18,9 +18,9 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from guardrail.approvals import APPROVED, DENIED, PENDING, ApprovalStore
+from guardrail.approvals import APPROVED, PENDING, ApprovalStore
 from guardrail.audit import AuditLog
-from guardrail.models import Decision, ToolCall
+from guardrail.models import Decision, ExecutionError, ToolCall
 from guardrail.policy import Policy, Verdict
 
 Executor = Callable[[ToolCall], str]
@@ -62,7 +62,7 @@ class Gateway:
         self.audit.record(call, verdict)
 
         if verdict.decision == Decision.ALLOW:
-            return self._execute(call, verdict.decision, verdict.reason)
+            return self._execute(call, verdict.decision, verdict.reason, verdict.rule)
 
         if verdict.decision == Decision.ESCALATE and self.approvals is not None:
             return self._await_approval(call, verdict)
@@ -70,8 +70,13 @@ class Gateway:
         # BLOCK, DRY_RUN, and ESCALATE without an approval store never reach the executor.
         return Outcome(verdict.decision, verdict.reason, executed=False)
 
-    def _execute(self, call: ToolCall, decision: Decision, reason: str) -> Outcome:
-        output = self.executor(call)
+    def _execute(self, call: ToolCall, decision: Decision, reason: str, rule: str | None) -> Outcome:
+        try:
+            output = self.executor(call)
+        except ExecutionError as exc:
+            # The policy allowed the call, but it did not run. Say so in the audit log.
+            self.audit.record(call, Verdict(decision, f"execution failed: {exc}", rule))
+            raise
         return Outcome(decision, reason, executed=True, output=output)
 
     def _await_approval(self, call: ToolCall, verdict: Verdict) -> Outcome:
@@ -89,7 +94,7 @@ class Gateway:
         if status == APPROVED:
             reason = f"approved by a person (request {request_id})"
             self.audit.record(call, Verdict(Decision.ALLOW, reason, verdict.rule))
-            return self._execute(call, Decision.ALLOW, reason)
+            return self._execute(call, Decision.ALLOW, reason, verdict.rule)
 
         reason = f"not approved (request {request_id}: {status})"
         self.audit.record(call, Verdict(Decision.BLOCK, reason, verdict.rule))

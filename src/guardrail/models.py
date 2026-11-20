@@ -7,6 +7,10 @@ from enum import Enum
 from typing import Any
 
 
+class ExecutionError(RuntimeError):
+    """An allowed call could not be carried out, for example because the program is not installed."""
+
+
 class Decision(str, Enum):
     """What the guardrail decides to do with a tool call."""
 
