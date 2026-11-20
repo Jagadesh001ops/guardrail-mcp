@@ -45,8 +45,10 @@ def test_apply_with_empty_plan_file_is_blocked(policy):
     assert policy.evaluate(tf("apply", "")).decision == Decision.BLOCK
 
 
-def test_apply_with_plan_file_is_allowed_by_policy(policy):
-    assert policy.evaluate(tf("apply", "tfplan")).decision == Decision.ALLOW
+def test_apply_with_plan_file_needs_approval(policy):
+    verdict = policy.evaluate(tf("apply", "tfplan"))
+    assert verdict.decision == Decision.ESCALATE
+    assert verdict.rule == "escalate-terraform-apply"
 
 
 def test_plan_is_allowed_by_policy(policy):
@@ -169,6 +171,65 @@ def test_server_refuses_apply_without_plan(tmp_path, monkeypatch):
 
     with pytest.raises(ToolError, match="BLOCKED: terraform apply requires a saved plan"):
         asyncio.run(server.call_tool("terraform", {"action": "apply"}))
+
+
+def test_server_runs_apply_only_after_a_person_approves(tmp_path, monkeypatch):
+    import asyncio
+    import threading
+    import time
+
+    from guardrail.approvals import ApprovalStore
+    from guardrail.server import build_server, make_gateway
+
+    plan = tmp_path / "tfplan"
+    plan.write_text("plan")
+    monkeypatch.chdir(tmp_path)  # so the plan_file path is relative and inside the temp dir
+    ran = []
+
+    def fake_run(argv, **kwargs):
+        ran.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout="applied\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    approvals_dir = tmp_path / "approvals"
+    server = build_server(
+        make_gateway(POLICY, tmp_path / "audit.jsonl", approvals_dir=approvals_dir, approval_timeout=10)
+    )
+
+    def approver():
+        store = ApprovalStore(approvals_dir)
+        for _ in range(100):
+            pending = store.list_pending()
+            if pending:
+                store.decide(pending[0]["id"], approve=True)
+                return
+            time.sleep(0.05)
+
+    thread = threading.Thread(target=approver)
+    thread.start()
+    result = asyncio.run(server.call_tool("terraform", {"action": "apply", "plan_file": "tfplan"}))
+    thread.join()
+
+    assert "applied" in result.content[0].text
+    assert ran == [["terraform", "apply", "-input=false", "-no-color", "tfplan"]]
+
+
+def test_server_refuses_apply_when_nobody_answers(tmp_path, monkeypatch):
+    import asyncio
+
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from guardrail.server import build_server, make_gateway
+
+    (tmp_path / "tfplan").write_text("plan")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    server = build_server(
+        make_gateway(POLICY, tmp_path / "audit.jsonl", approvals_dir=tmp_path / "approvals", approval_timeout=0.5)
+    )
+
+    with pytest.raises(ToolError, match="not approved"):
+        asyncio.run(server.call_tool("terraform", {"action": "apply", "plan_file": "tfplan"}))
 
 
 def test_server_lists_terraform_tool(tmp_path):

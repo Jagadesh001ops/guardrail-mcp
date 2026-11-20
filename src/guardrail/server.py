@@ -13,14 +13,16 @@ from typing import Literal
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from guardrail.approvals import ApprovalStore
 from guardrail.audit import AuditLog
 from guardrail.executors import run_tool
-from guardrail.gateway import Gateway, Outcome
+from guardrail.gateway import DEFAULT_APPROVAL_TIMEOUT_SECONDS, Gateway, Outcome
 from guardrail.models import ToolCall
 from guardrail.policy import load_policy
 
 DEFAULT_POLICY_PATH = Path("policies") / "default.toml"
 DEFAULT_AUDIT_PATH = Path("logs") / "audit.jsonl"
+DEFAULT_APPROVALS_DIR = Path("approvals")
 
 
 def format_outcome(outcome: Outcome) -> str:
@@ -30,7 +32,7 @@ def format_outcome(outcome: Outcome) -> str:
     label = {
         "block": "BLOCKED",
         "dry_run": "DRY RUN ONLY (not executed)",
-        "escalate": "REQUIRES HUMAN APPROVAL (not executed; approval is not built yet)",
+        "escalate": "REQUIRES HUMAN APPROVAL (not executed; no approval store is configured)",
     }.get(outcome.decision.value, outcome.decision.value.upper())
     return f"{label}: {outcome.reason}"
 
@@ -70,10 +72,23 @@ def build_server(gateway: Gateway) -> MCPServer:
 def make_gateway(
     policy_path: str | Path | None = None,
     audit_path: str | Path | None = None,
+    approvals_dir: str | Path | None = None,
+    approval_timeout: float | None = None,
 ) -> Gateway:
     policy_path = policy_path or os.environ.get("GUARDRAIL_POLICY", DEFAULT_POLICY_PATH)
     audit_path = audit_path or os.environ.get("GUARDRAIL_AUDIT_LOG", DEFAULT_AUDIT_PATH)
-    return Gateway(load_policy(policy_path), AuditLog(audit_path), executor=run_tool)
+    approvals_dir = approvals_dir or os.environ.get("GUARDRAIL_APPROVALS_DIR", DEFAULT_APPROVALS_DIR)
+    if approval_timeout is None:
+        approval_timeout = float(
+            os.environ.get("GUARDRAIL_APPROVAL_TIMEOUT", DEFAULT_APPROVAL_TIMEOUT_SECONDS)
+        )
+    return Gateway(
+        load_policy(policy_path),
+        AuditLog(audit_path),
+        executor=run_tool,
+        approvals=ApprovalStore(approvals_dir),
+        approval_timeout=approval_timeout,
+    )
 
 
 def main() -> None:
