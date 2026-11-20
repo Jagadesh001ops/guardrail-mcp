@@ -21,10 +21,14 @@ class PolicyError(ValueError):
 
 @dataclass(frozen=True)
 class Verdict:
-    """The decision for one tool call, plus the reason it was reached."""
+    """The decision for one tool call, plus the reason it was reached.
+
+    `rule` is the name of the rule that decided, or None if the default applied.
+    """
 
     decision: Decision
     reason: str
+    rule: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,9 +54,9 @@ class Policy:
                 matched = MATCHERS[rule.matcher](call.arguments, rule.params)
             except UnparseableInput as exc:
                 # Fail closed: a call we cannot inspect is never allowed by default.
-                return Verdict(Decision.BLOCK, f"{rule.reason} (could not inspect call: {exc})")
+                return Verdict(Decision.BLOCK, f"{rule.reason} (could not inspect call: {exc})", rule.name)
             if matched:
-                return Verdict(rule.decision, rule.reason)
+                return Verdict(rule.decision, rule.reason, rule.name)
         return Verdict(self.default_decision, "no rule matched")
 
 

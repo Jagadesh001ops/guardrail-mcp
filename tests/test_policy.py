@@ -72,6 +72,11 @@ def test_allows_tools_no_rule_applies_to(policy):
     assert verdict.reason == "no rule matched"
 
 
+def test_verdict_names_the_rule_that_decided(policy):
+    assert policy.evaluate(shell("rm -rf /")).rule == "block-recursive-forced-rm-of-root"
+    assert policy.evaluate(shell("ls")).rule is None
+
+
 def test_default_policy_loads_one_rule(policy):
     assert [r.name for r in policy.rules] == ["block-recursive-forced-rm-of-root"]
     assert policy.default_decision == Decision.ALLOW
