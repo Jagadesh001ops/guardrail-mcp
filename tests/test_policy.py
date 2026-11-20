@@ -67,7 +67,7 @@ def test_blocks_shell_call_without_string_command(policy):
 
 
 def test_allows_tools_no_rule_applies_to(policy):
-    verdict = policy.evaluate(ToolCall(tool="terraform", arguments={"command": "destroy"}))
+    verdict = policy.evaluate(ToolCall(tool="sql", arguments={"query": "DROP TABLE users"}))
     assert verdict.decision == Decision.ALLOW
     assert verdict.reason == "no rule matched"
 
@@ -77,8 +77,12 @@ def test_verdict_names_the_rule_that_decided(policy):
     assert policy.evaluate(shell("ls")).rule is None
 
 
-def test_default_policy_loads_one_rule(policy):
-    assert [r.name for r in policy.rules] == ["block-recursive-forced-rm-of-root"]
+def test_default_policy_rule_names(policy):
+    assert [r.name for r in policy.rules] == [
+        "block-recursive-forced-rm-of-root",
+        "block-terraform-destroy",
+        "block-terraform-apply-without-plan",
+    ]
     assert policy.default_decision == Decision.ALLOW
 
 
