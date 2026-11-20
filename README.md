@@ -35,9 +35,18 @@ Settings come from environment variables:
 - `GUARDRAIL_APPROVALS_DIR`: folder for approval requests (default `approvals/`)
 - `GUARDRAIL_APPROVAL_TIMEOUT`: seconds to wait for a decision (default `120`)
 
+## Shell sandbox
+
+Shell commands run in a new Docker container for each call, with no network, a read-only root filesystem, scratch space in `/tmp` and `/work` only, no host folders mounted, a non-root user, no Linux capabilities, and memory, CPU and process limits. Commands time out after 30 seconds, and the container is killed.
+
+- Docker Desktop must be running. If it isn't, shell calls fail with a clear error; they never run on the host.
+- Set `GUARDRAIL_SHELL_SANDBOX=none` only for development. It runs shell commands directly on this machine and prints a warning.
+- The image is `alpine:3.20`. The first call pulls it.
+- Terraform is not sandboxed. It runs on the host, governed by the rules.
+
 ## Known limits
 
-- The shell tool runs commands directly on this machine. There is no sandbox yet.
+- The sandbox is only as strong as Docker and its configuration. It is not a substitute for keeping sensitive data off the machine.
 - While an escalated call waits, that tool call is blocked. Other calls may queue behind it.
 - A saved plan file counts as reviewed once a person approves the apply. The guardrail does not check the plan's contents.
 
