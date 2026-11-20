@@ -20,3 +20,18 @@ matcher = "shell.rm_recursive_force"
 params = { targets = ["/", "/*"] }
 decision = "block"
 reason = "recursive forced delete of the filesystem root"
+
+[[rules]]
+name = "block-terraform-destroy"
+tool = "terraform"
+matcher = "terraform.action_is"
+params = { actions = ["destroy"] }
+decision = "block"
+reason = "terraform destroy is not allowed through the guardrail"
+
+[[rules]]
+name = "block-terraform-apply-without-plan"
+tool = "terraform"
+matcher = "terraform.apply_without_plan"
+decision = "block"
+reason = "terraform apply requires a saved plan file that was reviewed first"

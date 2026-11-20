@@ -71,11 +71,36 @@ def shell_rm_recursive_force(arguments: Mapping[str, Any], params: Mapping[str, 
     return any(_is_recursive_forced_rm(seg, targets) for seg in _segments(_tokenize(command)))
 
 
+def _terraform_action(arguments: Mapping[str, Any]) -> str:
+    action = arguments.get("action")
+    if not isinstance(action, str):
+        raise UnparseableInput("terraform call has no string 'action' argument")
+    return action
+
+
+def terraform_action_is(arguments: Mapping[str, Any], params: Mapping[str, Any]) -> bool:
+    """Match when the Terraform action is one of params['actions']."""
+    return _terraform_action(arguments) in set(params["actions"])
+
+
+def terraform_apply_without_plan(arguments: Mapping[str, Any], params: Mapping[str, Any]) -> bool:
+    """Match an apply that does not point at a saved plan file."""
+    action = _terraform_action(arguments)
+    plan_file = arguments.get("plan_file")
+    if plan_file is not None and not isinstance(plan_file, str):
+        raise UnparseableInput("terraform 'plan_file' must be a string")
+    return action == "apply" and not plan_file
+
+
 MATCHERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any]], bool]] = {
     "shell.rm_recursive_force": shell_rm_recursive_force,
+    "terraform.action_is": terraform_action_is,
+    "terraform.apply_without_plan": terraform_apply_without_plan,
 }
 
 # Parameters each matcher accepts, and whether they are required.
 MATCHER_PARAMS: dict[str, dict[str, bool]] = {
     "shell.rm_recursive_force": {"targets": True},
+    "terraform.action_is": {"actions": True},
+    "terraform.apply_without_plan": {},
 }
