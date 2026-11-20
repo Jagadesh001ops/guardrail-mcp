@@ -49,8 +49,9 @@ def build_server(gateway: Gateway) -> MCPServer:
             outcome = gateway.handle(call)
         except ExecutionError as exc:
             raise ToolError(f"execution failed: {exc}") from exc
-        if not outcome.executed:
-            # Refused calls are errors, so the agent can tell them apart from success.
+        if not outcome.executed or outcome.failed:
+            # Refused calls and commands that exited non-zero are errors, so the agent
+            # can tell them apart from success.
             raise ToolError(format_outcome(outcome))
         return format_outcome(outcome)
 

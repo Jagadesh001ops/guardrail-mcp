@@ -67,7 +67,8 @@ def test_timeout_kills_the_container(monkeypatch):
         raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    output = sandbox.run_in_sandbox("sleep 100", timeout=1)
+    result = sandbox.run_in_sandbox("sleep 100", timeout=1)
 
-    assert "timed out" in output
+    assert "timed out" in result.text
+    assert result.ok is False
     assert len(killed) == 1 and killed[0].startswith("guardrail-")

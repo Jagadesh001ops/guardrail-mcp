@@ -16,7 +16,7 @@ from __future__ import annotations
 import subprocess
 import uuid
 
-from guardrail.models import ExecutionError
+from guardrail.models import CommandResult, ExecutionError
 
 DEFAULT_IMAGE = "alpine:3.20"
 DEFAULT_TIMEOUT_SECONDS = 30
@@ -45,8 +45,8 @@ def build_docker_argv(command: str, container_name: str, image: str = DEFAULT_IM
     ]
 
 
-def run_in_sandbox(command: str, image: str = DEFAULT_IMAGE, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> str:
-    """Run a shell command in a sandbox container and return its output as text."""
+def run_in_sandbox(command: str, image: str = DEFAULT_IMAGE, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> CommandResult:
+    """Run a shell command in a sandbox container and return its result."""
     name = f"guardrail-{uuid.uuid4().hex[:12]}"
     argv = build_docker_argv(command, name, image)
     try:
@@ -55,7 +55,7 @@ def run_in_sandbox(command: str, image: str = DEFAULT_IMAGE, timeout: float = DE
         raise ExecutionError("docker is not installed or not on PATH; shell sandbox unavailable") from None
     except subprocess.TimeoutExpired:
         _kill_container(name)
-        return f"command timed out after {timeout} seconds (container stopped)"
+        return CommandResult(text=f"command timed out after {timeout} seconds (container stopped)", ok=False)
     except OSError as exc:
         raise ExecutionError(f"could not run docker: {exc.strerror or exc}") from None
 
@@ -63,7 +63,8 @@ def run_in_sandbox(command: str, image: str = DEFAULT_IMAGE, timeout: float = DE
         # docker itself failed (daemon not running, bad image, etc.), not the command.
         raise ExecutionError(f"docker could not start the sandbox: {result.stderr.strip()[:300]}")
 
-    return f"exit code: {result.returncode}\nstdout:\n{result.stdout}stderr:\n{result.stderr}"
+    text = f"exit code: {result.returncode}\nstdout:\n{result.stdout}stderr:\n{result.stderr}"
+    return CommandResult(text=text, ok=result.returncode == 0)
 
 
 def _kill_container(name: str) -> None:

@@ -20,10 +20,10 @@ from dataclasses import dataclass
 
 from guardrail.approvals import APPROVED, PENDING, ApprovalStore
 from guardrail.audit import AuditLog
-from guardrail.models import Decision, ExecutionError, ToolCall
+from guardrail.models import CommandResult, Decision, ExecutionError, ToolCall
 from guardrail.policy import Policy, Verdict
 
-Executor = Callable[[ToolCall], str]
+Executor = Callable[[ToolCall], CommandResult]
 
 DEFAULT_APPROVAL_TIMEOUT_SECONDS = 120.0
 
@@ -34,6 +34,7 @@ class Outcome:
     reason: str
     executed: bool
     output: str | None = None
+    failed: bool = False  # executed, but the command exited with an error
 
 
 class Gateway:
@@ -72,12 +73,12 @@ class Gateway:
 
     def _execute(self, call: ToolCall, decision: Decision, reason: str, rule: str | None) -> Outcome:
         try:
-            output = self.executor(call)
+            result = self.executor(call)
         except ExecutionError as exc:
             # The policy allowed the call, but it did not run. Say so in the audit log.
             self.audit.record(call, Verdict(decision, f"execution failed: {exc}", rule))
             raise
-        return Outcome(decision, reason, executed=True, output=output)
+        return Outcome(decision, reason, executed=True, output=result.text, failed=not result.ok)
 
     def _await_approval(self, call: ToolCall, verdict: Verdict) -> Outcome:
         request_id = self.approvals.create(call, verdict.reason)

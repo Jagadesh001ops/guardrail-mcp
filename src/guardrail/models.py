@@ -11,6 +11,14 @@ class ExecutionError(RuntimeError):
     """An allowed call could not be carried out, for example because the program is not installed."""
 
 
+@dataclass(frozen=True)
+class CommandResult:
+    """What an executor returns: the text to show, and whether the command succeeded."""
+
+    text: str
+    ok: bool
+
+
 class Decision(str, Enum):
     """What the guardrail decides to do with a tool call."""
 

@@ -46,6 +46,17 @@ def test_shell_tool_runs_allowed_command(tmp_path):
     assert "hello" in text_of(result)
 
 
+def test_failing_command_is_reported_as_an_error(tmp_path):
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    server = build_server(make_gateway(POLICY, tmp_path / "audit.jsonl", shell_sandbox="none"))
+    command = f'"{sys.executable}" -c "import sys; sys.stderr.write(\'bad\'); sys.exit(3)"'
+
+    with pytest.raises(ToolError, match="exit code: 3") as info:
+        asyncio.run(server.call_tool("shell", {"command": command}))
+    assert "bad" in str(info.value)
+
+
 def test_shell_tool_refuses_blocked_command_and_audits_it(tmp_path):
     audit_path = tmp_path / "audit.jsonl"
     server = build_server(make_gateway(POLICY, audit_path))

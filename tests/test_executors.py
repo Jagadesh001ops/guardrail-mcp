@@ -12,22 +12,25 @@ def shell(command):
 
 
 def test_captures_stdout_and_zero_exit_code():
-    output = run_shell(shell("echo hello"))
-    assert "exit code: 0" in output
-    assert "hello" in output
+    result = run_shell(shell("echo hello"))
+    assert "exit code: 0" in result.text
+    assert "hello" in result.text
+    assert result.ok is True
 
 
 def test_captures_nonzero_exit_code_and_stderr():
     command = f'"{sys.executable}" -c "import sys; sys.stderr.write(\'boom\'); sys.exit(3)"'
-    output = run_shell(shell(command))
-    assert "exit code: 3" in output
-    assert "boom" in output
+    result = run_shell(shell(command))
+    assert "exit code: 3" in result.text
+    assert "boom" in result.text
+    assert result.ok is False
 
 
 def test_timeout_is_reported_not_raised():
     command = f'"{sys.executable}" -c "import time; time.sleep(5)"'
-    output = run_shell(shell(command), timeout=0.5)
-    assert "timed out" in output
+    result = run_shell(shell(command), timeout=0.5)
+    assert "timed out" in result.text
+    assert result.ok is False
 
 
 def test_missing_shell_program_is_an_execution_error(monkeypatch):
