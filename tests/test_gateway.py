@@ -194,6 +194,26 @@ def test_escalate_without_approval_store_still_refuses(tmp_path):
     assert executor.calls == []
 
 
+def test_failing_command_is_recorded_in_audit(tmp_path):
+    failing = lambda call: CommandResult(text="exit code: 3", ok=False, summary="exit code 3")  # noqa: E731
+    gateway, audit, _ = make_gateway(tmp_path, Policy(rules=()), executor=failing)
+
+    outcome = gateway.handle(shell("false"))
+
+    assert outcome.failed is True
+    records = audit.read()
+    assert [r["decision"] for r in records] == ["allow", "allow"]
+    assert records[1]["reason"] == "command failed: exit code 3"
+
+
+def test_successful_command_is_not_recorded_as_failure(tmp_path):
+    gateway, audit, _ = make_gateway(tmp_path, Policy(rules=()))
+
+    gateway.handle(shell("ls"))
+
+    assert [r["reason"] for r in audit.read()] == ["no rule matched"]
+
+
 def test_failed_execution_is_recorded_in_audit(tmp_path):
     from guardrail.models import ExecutionError
 

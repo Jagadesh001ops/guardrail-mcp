@@ -78,6 +78,9 @@ class Gateway:
             # The policy allowed the call, but it did not run. Say so in the audit log.
             self.audit.record(call, Verdict(decision, f"execution failed: {exc}", rule))
             raise
+        if not result.ok:
+            # The call was allowed and ran, but the command failed. Record that too.
+            self.audit.record(call, Verdict(decision, f"command failed: {result.summary}", rule))
         return Outcome(decision, reason, executed=True, output=result.text, failed=not result.ok)
 
     def _await_approval(self, call: ToolCall, verdict: Verdict) -> Outcome:

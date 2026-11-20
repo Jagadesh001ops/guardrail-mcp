@@ -55,7 +55,11 @@ def run_in_sandbox(command: str, image: str = DEFAULT_IMAGE, timeout: float = DE
         raise ExecutionError("docker is not installed or not on PATH; shell sandbox unavailable") from None
     except subprocess.TimeoutExpired:
         _kill_container(name)
-        return CommandResult(text=f"command timed out after {timeout} seconds (container stopped)", ok=False)
+        return CommandResult(
+            text=f"command timed out after {timeout} seconds (container stopped)",
+            ok=False,
+            summary="timed out",
+        )
     except OSError as exc:
         raise ExecutionError(f"could not run docker: {exc.strerror or exc}") from None
 
@@ -64,7 +68,7 @@ def run_in_sandbox(command: str, image: str = DEFAULT_IMAGE, timeout: float = DE
         raise ExecutionError(f"docker could not start the sandbox: {result.stderr.strip()[:300]}")
 
     text = f"exit code: {result.returncode}\nstdout:\n{result.stdout}stderr:\n{result.stderr}"
-    return CommandResult(text=text, ok=result.returncode == 0)
+    return CommandResult(text=text, ok=result.returncode == 0, summary=f"exit code {result.returncode}")
 
 
 def _kill_container(name: str) -> None:

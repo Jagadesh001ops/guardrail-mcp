@@ -29,7 +29,15 @@ def _run(argv: list[str], program: str, timeout: float, **kwargs) -> subprocess.
 
 def format_result(returncode: int, stdout: str, stderr: str) -> CommandResult:
     text = f"exit code: {returncode}\nstdout:\n{stdout}stderr:\n{stderr}"
-    return CommandResult(text=text, ok=returncode == 0)
+    return CommandResult(text=text, ok=returncode == 0, summary=f"exit code {returncode}")
+
+
+def timeout_result(what: str, timeout: float) -> CommandResult:
+    return CommandResult(
+        text=f"{what} timed out after {timeout} seconds",
+        ok=False,
+        summary="timed out",
+    )
 
 
 def run_shell(call: ToolCall, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> CommandResult:
@@ -43,7 +51,7 @@ def run_shell(call: ToolCall, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> Comma
     try:
         result = _run(command, program="shell", timeout=timeout, shell=True)
     except subprocess.TimeoutExpired:
-        return CommandResult(text=f"command timed out after {timeout} seconds", ok=False)
+        return timeout_result("command", timeout)
 
     return format_result(result.returncode, result.stdout, result.stderr)
 
@@ -81,7 +89,7 @@ def run_terraform(call: ToolCall, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> C
     try:
         result = _run(argv, program="terraform", timeout=timeout)
     except subprocess.TimeoutExpired:
-        return CommandResult(text=f"terraform {action} timed out after {timeout} seconds", ok=False)
+        return timeout_result(f"terraform {action}", timeout)
 
     return format_result(result.returncode, result.stdout, result.stderr)
 
