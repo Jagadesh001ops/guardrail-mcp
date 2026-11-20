@@ -1,20 +1,22 @@
-"""Policy evaluation. Step 3: one hard-coded rule for shell commands.
+"""Policy engine: loads rules from a TOML file and decides each tool call.
 
-Rule: block a recursive, forced `rm` aimed at the filesystem root (`/` or `/*`).
-Everything else is allowed for now. Commands that cannot be parsed are blocked
-(fail closed), since we cannot judge what they would do.
+Rules live in configuration, not code. The file names built-in matchers
+(see matchers.py) and says what decision each one produces.
 """
 
 from __future__ import annotations
 
-import shlex
-from dataclasses import dataclass
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
+from guardrail.matchers import MATCHER_PARAMS, MATCHERS, UnparseableInput
 from guardrail.models import Decision, ToolCall
 
-# Shell operators that separate one simple command from the next.
-_SEPARATORS = {";", "&&", "||", "|", "&"}
-_ROOT_TARGETS = {"/", "/*"}
+
+class PolicyError(ValueError):
+    """The policy file is malformed or refers to something that does not exist."""
 
 
 @dataclass(frozen=True)
@@ -25,64 +27,109 @@ class Verdict:
     reason: str
 
 
-def evaluate(call: ToolCall) -> Verdict:
-    """Return the guardrail's decision for a single tool call."""
-    if call.tool == "shell":
-        return _evaluate_shell(call)
-    return Verdict(Decision.ALLOW, "no rule matched")
+@dataclass(frozen=True)
+class Rule:
+    name: str
+    tool: str
+    matcher: str
+    decision: Decision
+    reason: str
+    params: dict[str, Any] = field(default_factory=dict)
 
 
-def _evaluate_shell(call: ToolCall) -> Verdict:
-    command = call.arguments.get("command")
-    if not isinstance(command, str):
-        return Verdict(Decision.BLOCK, "shell call has no string 'command' argument")
+@dataclass(frozen=True)
+class Policy:
+    rules: tuple[Rule, ...]
+    default_decision: Decision = Decision.ALLOW
 
+    def evaluate(self, call: ToolCall) -> Verdict:
+        for rule in self.rules:
+            if rule.tool != call.tool:
+                continue
+            try:
+                matched = MATCHERS[rule.matcher](call.arguments, rule.params)
+            except UnparseableInput as exc:
+                # Fail closed: a call we cannot inspect is never allowed by default.
+                return Verdict(Decision.BLOCK, f"{rule.reason} (could not inspect call: {exc})")
+            if matched:
+                return Verdict(rule.decision, rule.reason)
+        return Verdict(self.default_decision, "no rule matched")
+
+
+_TOP_LEVEL_KEYS = {"default_decision", "rules"}
+_RULE_KEYS = {"name", "tool", "matcher", "decision", "reason", "params"}
+
+
+def _parse_decision(value: Any, where: str) -> Decision:
     try:
-        tokens = _tokenize(command)
+        return Decision(value)
     except ValueError:
-        return Verdict(Decision.BLOCK, "command could not be parsed")
-
-    for segment in _segments(tokens):
-        if _is_recursive_forced_rm_of_root(segment):
-            return Verdict(Decision.BLOCK, "recursive forced delete of the filesystem root")
-
-    return Verdict(Decision.ALLOW, "no rule matched")
+        valid = ", ".join(d.value for d in Decision)
+        raise PolicyError(f"{where}: unknown decision {value!r} (expected one of: {valid})") from None
 
 
-def _tokenize(command: str) -> list[str]:
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    return list(lexer)
+def _parse_rule(raw: Any, index: int) -> Rule:
+    where = f"rules[{index}]"
+    if not isinstance(raw, dict):
+        raise PolicyError(f"{where}: must be a table")
+
+    unknown = set(raw) - _RULE_KEYS
+    if unknown:
+        raise PolicyError(f"{where}: unknown keys {sorted(unknown)}")
+
+    for key in ("name", "tool", "matcher", "decision", "reason"):
+        if key not in raw:
+            raise PolicyError(f"{where}: missing required key '{key}'")
+        if not isinstance(raw[key], str) or not raw[key].strip():
+            raise PolicyError(f"{where}: '{key}' must be a non-empty string")
+
+    name = raw["name"]
+    where = f"rule '{name}'"
+
+    matcher = raw["matcher"]
+    if matcher not in MATCHERS:
+        raise PolicyError(f"{where}: unknown matcher {matcher!r}")
+
+    params = raw.get("params", {})
+    if not isinstance(params, dict):
+        raise PolicyError(f"{where}: 'params' must be a table")
+    allowed = MATCHER_PARAMS[matcher]
+    unknown_params = set(params) - set(allowed)
+    if unknown_params:
+        raise PolicyError(f"{where}: unknown params {sorted(unknown_params)} for matcher {matcher!r}")
+    for param, required in allowed.items():
+        if required and param not in params:
+            raise PolicyError(f"{where}: matcher {matcher!r} requires param '{param}'")
+
+    return Rule(
+        name=name,
+        tool=raw["tool"],
+        matcher=matcher,
+        decision=_parse_decision(raw["decision"], where),
+        reason=raw["reason"],
+        params=dict(params),
+    )
 
 
-def _segments(tokens: list[str]) -> list[list[str]]:
-    """Split a token list into simple commands at shell operators."""
-    segments: list[list[str]] = [[]]
-    for token in tokens:
-        if token in _SEPARATORS:
-            segments.append([])
-        else:
-            segments[-1].append(token)
-    return [s for s in segments if s]
+def load_policy(path: str | Path) -> Policy:
+    """Load and validate a policy file. Raises PolicyError if anything is wrong."""
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
 
+    unknown = set(data) - _TOP_LEVEL_KEYS
+    if unknown:
+        raise PolicyError(f"unknown top-level keys {sorted(unknown)}")
 
-def _is_recursive_forced_rm_of_root(tokens: list[str]) -> bool:
-    if not tokens or tokens[0] != "rm":
-        return False
+    default = _parse_decision(data.get("default_decision", "allow"), "default_decision")
 
-    recursive = force = False
-    targets: list[str] = []
-    for arg in tokens[1:]:
-        if arg == "--recursive":
-            recursive = True
-        elif arg == "--force":
-            force = True
-        elif arg.startswith("--"):
-            continue  # other long options do not change the risk here
-        elif arg.startswith("-"):
-            recursive = recursive or any(c in "rR" for c in arg[1:])
-            force = force or "f" in arg[1:]
-        else:
-            targets.append(arg)
+    raw_rules = data.get("rules", [])
+    if not isinstance(raw_rules, list):
+        raise PolicyError("'rules' must be an array of tables")
+    rules = tuple(_parse_rule(raw, i) for i, raw in enumerate(raw_rules))
 
-    return recursive and force and any(t in _ROOT_TARGETS for t in targets)
+    names = [r.name for r in rules]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise PolicyError(f"duplicate rule names: {duplicates}")
+
+    return Policy(rules=rules, default_decision=default)
