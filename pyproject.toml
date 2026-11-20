@@ -15,6 +15,7 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 guardrail-mcp = "guardrail.server:main"
+guardrail-approvals = "guardrail.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

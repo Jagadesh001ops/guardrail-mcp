@@ -82,6 +82,7 @@ def test_default_policy_rule_names(policy):
         "block-recursive-forced-rm-of-root",
         "block-terraform-destroy",
         "block-terraform-apply-without-plan",
+        "escalate-terraform-apply",
     ]
     assert policy.default_decision == Decision.ALLOW
 

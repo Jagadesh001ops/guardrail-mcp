@@ -35,3 +35,12 @@ tool = "terraform"
 matcher = "terraform.apply_without_plan"
 decision = "block"
 reason = "terraform apply requires a saved plan file that was reviewed first"
+
+# Rules are checked in order, so apply without a plan is blocked above before this is reached.
+[[rules]]
+name = "escalate-terraform-apply"
+tool = "terraform"
+matcher = "terraform.action_is"
+params = { actions = ["apply"] }
+decision = "escalate"
+reason = "terraform apply of a saved plan needs a person to approve it"
