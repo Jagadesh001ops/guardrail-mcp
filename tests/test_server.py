@@ -8,6 +8,8 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from mcp.server.mcpserver.exceptions import ToolError
+
 from guardrail.gateway import Outcome
 from guardrail.models import Decision
 from guardrail.server import build_server, format_outcome, make_gateway
@@ -47,9 +49,9 @@ def test_shell_tool_refuses_blocked_command_and_audits_it(tmp_path):
     audit_path = tmp_path / "audit.jsonl"
     server = build_server(make_gateway(POLICY, audit_path))
 
-    result = asyncio.run(server.call_tool("shell", {"command": "rm -rf /"}))
+    with pytest.raises(ToolError, match="BLOCKED: "):
+        asyncio.run(server.call_tool("shell", {"command": "rm -rf /"}))
 
-    assert text_of(result).startswith("BLOCKED: ")
     record = json.loads(audit_path.read_text(encoding="utf-8").splitlines()[0])
     assert record["decision"] == "block"
     assert record["rule"] == "block-recursive-forced-rm-of-root"
@@ -77,12 +79,14 @@ def test_stdio_client_can_call_tools_end_to_end(tmp_path):
                 names = [t.name for t in tools.tools]
                 allowed = await session.call_tool("shell", {"command": "echo end-to-end"})
                 blocked = await session.call_tool("shell", {"command": "rm -rf /"})
-                return names, text_of(allowed), text_of(blocked)
+                return names, allowed, blocked
 
-    names, allowed_text, blocked_text = asyncio.run(scenario())
+    names, allowed, blocked = asyncio.run(scenario())
 
     assert "shell" in names
-    assert "end-to-end" in allowed_text
-    assert blocked_text.startswith("BLOCKED: ")
+    assert allowed.is_error is False
+    assert "end-to-end" in text_of(allowed)
+    assert blocked.is_error is True
+    assert "BLOCKED: recursive forced delete" in text_of(blocked)
     decisions = [json.loads(line)["decision"] for line in audit_path.read_text(encoding="utf-8").splitlines()]
     assert decisions == ["allow", "block"]
