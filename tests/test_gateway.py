@@ -193,6 +193,23 @@ def test_escalate_without_approval_store_still_refuses(tmp_path):
     assert executor.calls == []
 
 
+def test_failed_execution_is_recorded_in_audit(tmp_path):
+    from guardrail.models import ExecutionError
+
+    def broken(call):
+        raise ExecutionError("terraform is not installed or not on PATH")
+
+    gateway, audit, _ = make_gateway(tmp_path, Policy(rules=()), executor=broken)
+
+    with pytest.raises(ExecutionError):
+        gateway.handle(shell("ls"))
+
+    records = audit.read()
+    assert [r["decision"] for r in records] == ["allow", "allow"]
+    assert records[0]["reason"] == "no rule matched"
+    assert records[1]["reason"] == "execution failed: terraform is not installed or not on PATH"
+
+
 def test_every_call_is_recorded_in_order(tmp_path):
     gateway, audit, _ = make_gateway(tmp_path, Policy(rules=(rule(Decision.BLOCK),)))
 

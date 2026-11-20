@@ -127,6 +127,17 @@ def test_plan_file_on_destroy_is_refused(recorder):
         run_terraform(tf("destroy", "tfplan"))
 
 
+def test_missing_terraform_is_an_execution_error(monkeypatch):
+    from guardrail.models import ExecutionError
+
+    def missing(*a, **k):
+        raise FileNotFoundError(2, "not found")
+
+    monkeypatch.setattr(subprocess, "run", missing)
+    with pytest.raises(ExecutionError, match="terraform is not installed or not on PATH"):
+        run_terraform(tf("plan"))
+
+
 def test_run_tool_dispatches_by_tool_name(recorder):
     assert run_tool(tf("plan")).startswith("exit code: 0")
     assert recorder.argv[1] == "plan"
@@ -230,6 +241,27 @@ def test_server_refuses_apply_when_nobody_answers(tmp_path, monkeypatch):
 
     with pytest.raises(ToolError, match="not approved"):
         asyncio.run(server.call_tool("terraform", {"action": "apply", "plan_file": "tfplan"}))
+
+
+def test_server_reports_missing_terraform_as_a_clear_error(tmp_path, monkeypatch):
+    import asyncio
+
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from guardrail.server import build_server, make_gateway
+
+    def missing(*a, **k):
+        raise FileNotFoundError(2, "not found")
+
+    monkeypatch.setattr(subprocess, "run", missing)
+    audit_path = tmp_path / "audit.jsonl"
+    server = build_server(make_gateway(POLICY, audit_path, approvals_dir=tmp_path / "approvals"))
+
+    with pytest.raises(ToolError, match="execution failed: terraform is not installed"):
+        asyncio.run(server.call_tool("terraform", {"action": "plan"}))
+
+    reasons = [json.loads(line)["reason"] for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    assert reasons[-1].startswith("execution failed: terraform is not installed")
 
 
 def test_server_lists_terraform_tool(tmp_path):

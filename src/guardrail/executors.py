@@ -9,10 +9,20 @@ import subprocess
 
 from pathlib import Path
 
-from guardrail.models import ToolCall
+from guardrail.models import ExecutionError, ToolCall
 
 DEFAULT_TIMEOUT_SECONDS = 30
 TERRAFORM_ACTIONS = {"plan", "apply", "destroy"}
+
+
+def _run(argv: list[str], program: str, timeout: float, **kwargs) -> subprocess.CompletedProcess:
+    """Run a program. Timeouts propagate to the caller; OS failures become ExecutionError."""
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, **kwargs)
+    except FileNotFoundError:
+        raise ExecutionError(f"{program} is not installed or not on PATH") from None
+    except OSError as exc:
+        raise ExecutionError(f"could not run {program}: {exc.strerror or exc}") from None
 
 
 def run_tool(call: ToolCall) -> str:
@@ -33,13 +43,7 @@ def run_shell(call: ToolCall, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> str:
         raise ValueError("shell call needs a string 'command' argument")
 
     try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        result = _run(command, program="shell", timeout=timeout, shell=True)
     except subprocess.TimeoutExpired:
         return f"command timed out after {timeout} seconds"
 
@@ -77,7 +81,7 @@ def run_terraform(call: ToolCall, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> s
         argv = base
 
     try:
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        result = _run(argv, program="terraform", timeout=timeout)
     except subprocess.TimeoutExpired:
         return f"terraform {action} timed out after {timeout} seconds"
 

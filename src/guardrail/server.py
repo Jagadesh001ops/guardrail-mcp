@@ -17,7 +17,7 @@ from guardrail.approvals import ApprovalStore
 from guardrail.audit import AuditLog
 from guardrail.executors import run_tool
 from guardrail.gateway import DEFAULT_APPROVAL_TIMEOUT_SECONDS, Gateway, Outcome
-from guardrail.models import ToolCall
+from guardrail.models import ExecutionError, ToolCall
 from guardrail.policy import load_policy
 
 DEFAULT_POLICY_PATH = Path("policies") / "default.toml"
@@ -44,7 +44,10 @@ def build_server(gateway: Gateway) -> MCPServer:
     )
 
     def submit(call: ToolCall) -> str:
-        outcome = gateway.handle(call)
+        try:
+            outcome = gateway.handle(call)
+        except ExecutionError as exc:
+            raise ToolError(f"execution failed: {exc}") from exc
         if not outcome.executed:
             # Refused calls are errors, so the agent can tell them apart from success.
             raise ToolError(format_outcome(outcome))
