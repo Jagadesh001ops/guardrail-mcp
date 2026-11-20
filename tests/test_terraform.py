@@ -140,7 +140,7 @@ def test_missing_terraform_is_an_execution_error(monkeypatch):
 
 def test_executor_dispatches_by_tool_name(recorder):
     execute = make_executor("none")
-    assert execute(tf("plan")).startswith("exit code: 0")
+    assert execute(tf("plan")).text.startswith("exit code: 0")
     assert recorder.argv[1] == "plan"
     with pytest.raises(ValueError, match="no executor"):
         execute(ToolCall(tool="sql", arguments={}))

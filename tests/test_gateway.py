@@ -4,18 +4,19 @@ import pytest
 
 from guardrail.audit import AuditLog
 from guardrail.gateway import Gateway
-from guardrail.models import Decision, ToolCall
+from guardrail.models import CommandResult, Decision, ToolCall
 from guardrail.policy import Policy, Rule
 
 
 class FakeExecutor:
-    def __init__(self, output="ran"):
+    def __init__(self, output="ran", ok=True):
         self.calls = []
         self.output = output
+        self.ok = ok
 
     def __call__(self, call):
         self.calls.append(call)
-        return self.output
+        return CommandResult(text=self.output, ok=self.ok)
 
 
 def make_gateway(tmp_path, policy, executor=None):
@@ -80,7 +81,7 @@ def test_audit_is_written_before_executor_runs(tmp_path):
 
     def executor(call):
         seen_during_execution.append(len(audit.read()))
-        return "ok"
+        return CommandResult(text="ok", ok=True)
 
     gateway, audit, _ = make_gateway(tmp_path, Policy(rules=()), executor=executor)
     gateway.handle(shell("ls"))
