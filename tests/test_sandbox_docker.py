@@ -11,12 +11,16 @@ from guardrail.sandbox import run_in_sandbox
 
 
 def docker_available():
+    """True only for a running Linux engine. Windows-container mode cannot run the Alpine sandbox image."""
     if shutil.which("docker") is None:
         return False
     try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=30).returncode == 0
+        result = subprocess.run(
+            ["docker", "info", "--format", "{{.OSType}}"], capture_output=True, text=True, timeout=30
+        )
     except (OSError, subprocess.TimeoutExpired):
         return False
+    return result.returncode == 0 and result.stdout.strip() == "linux"
 
 
 pytestmark = pytest.mark.skipif(not docker_available(), reason="Docker daemon is not running")
