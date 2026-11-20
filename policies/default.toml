@@ -1,0 +1,22 @@
+# Guardrail default policy.
+#
+# Rules are checked in order. The first rule whose tool and matcher both
+# apply decides the outcome. If no rule matches, default_decision applies.
+#
+# Each rule:
+#   name      unique identifier, used in audit records
+#   tool      the tool name this rule applies to (exact match)
+#   matcher   a detector built into guardrail (see matchers.py)
+#   params    optional settings for that matcher
+#   decision  allow | block | dry_run | escalate
+#   reason    explanation recorded with every decision this rule makes
+
+default_decision = "allow"
+
+[[rules]]
+name = "block-recursive-forced-rm-of-root"
+tool = "shell"
+matcher = "shell.rm_recursive_force"
+params = { targets = ["/", "/*"] }
+decision = "block"
+reason = "recursive forced delete of the filesystem root"
