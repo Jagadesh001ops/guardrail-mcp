@@ -104,6 +104,9 @@ def _parse_rule(raw: Any, index: int) -> Rule:
     for param, required in allowed.items():
         if required and param not in params:
             raise PolicyError(f"{where}: matcher {matcher!r} requires param '{param}'")
+    for param, value in params.items():
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise PolicyError(f"{where}: param '{param}' must be a list of strings")
 
     return Rule(
         name=name,
