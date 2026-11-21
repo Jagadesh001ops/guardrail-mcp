@@ -21,7 +21,13 @@ Every tool call is meant to be allowed, blocked, dry-run, or escalated before it
 
    If nobody answers before the timeout, the request expires and the call is refused. Expired requests can't be approved later.
 
-Current rules: shell `rm -rf /` is blocked; Terraform `destroy` is blocked; Terraform `apply` without a saved plan is blocked; Terraform `apply` of a saved plan needs approval.
+Current rules are in `policies/default.toml`. In summary:
+- **Shell, blocked:** recursive forced `rm` of `/`, system directories, or home directories; `find` that deletes files; `dd` or redirects writing to device files; `mkfs`; shutdown and reboot; recursive `chmod`/`chown` on system directories; fork bombs.
+- **Shell, seen through wrappers:** these are checked even when hidden behind `sudo`, `env`, `nohup`, `timeout`, `nice`, or `sh -c "..."`.
+- **Terraform:** `destroy` is blocked; `apply` without a saved plan is blocked; `apply` of a saved plan needs approval.
+- **Everything else is allowed.** This is a deliberate default, so ordinary commands like `ls` still work. The shell sandbox limits what an allowed command can reach.
+
+Known gaps in the shell rules: they look at command text, not what a command does. Command substitution (`rm -rf $(echo /)`), commands that read their targets from input (`... | xargs rm -rf`), and new or unusual syntax can get past them.
 
 ## Running the server
 
