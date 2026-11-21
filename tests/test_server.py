@@ -49,7 +49,10 @@ def test_shell_tool_runs_allowed_command(tmp_path):
 def test_failing_command_is_reported_as_an_error(tmp_path):
     from mcp.server.mcpserver.exceptions import ToolError
 
-    server = build_server(make_gateway(POLICY, tmp_path / "audit.jsonl", shell_sandbox="none"))
+    # A permissive policy: this test is about reporting exit codes, not about the rulebook.
+    allow_all = tmp_path / "allow.toml"
+    allow_all.write_text('default_decision = "allow"\n', encoding="utf-8")
+    server = build_server(make_gateway(allow_all, tmp_path / "audit.jsonl", shell_sandbox="none"))
     command = f'"{sys.executable}" -c "import sys; sys.stderr.write(\'bad\'); sys.exit(3)"'
 
     with pytest.raises(ToolError, match="exit code: 3") as info:

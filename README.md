@@ -24,10 +24,15 @@ Every tool call is meant to be allowed, blocked, dry-run, or escalated before it
 Current rules are in `policies/default.toml`. In summary:
 - **Shell, blocked:** recursive forced `rm` of `/`, system directories, or home directories; `find` that deletes files; `dd` or redirects writing to device files; `mkfs`; shutdown and reboot; recursive `chmod`/`chown` on system directories; fork bombs.
 - **Shell, seen through wrappers:** these are checked even when hidden behind `sudo`, `env`, `nohup`, `timeout`, `nice`, or `sh -c "..."`.
+- **Shell, needs approval:** anything that runs code the guardrail cannot read. That includes script files (`./deploy.sh`, `bash setup.sh`, `python cleanup.py`), inline code (`python -c ...`), code piped into a shell (`curl ... | sh`), `source` of a file, and programs run by path. Version and help queries are allowed.
 - **Terraform:** `destroy` is blocked; `apply` without a saved plan is blocked; `apply` of a saved plan needs approval.
 - **Everything else is allowed.** This is a deliberate default, so ordinary commands like `ls` still work. The shell sandbox limits what an allowed command can reach.
 
 Known gaps in the shell rules: they look at command text, not what a command does. Command substitution (`rm -rf $(echo /)`), commands that read their targets from input (`... | xargs rm -rf`), and new or unusual syntax can get past them.
+
+Known gaps in the approval step:
+- **An approval covers the command text, not the file it runs.** If `./deploy.sh` is approved and then edited before it runs, the edited version runs. Approval should show, and re-check, the file's hash.
+- **Approval waits block the agent.** Build scripts like `./gradlew build` now need a person to approve them, and the agent waits up to the timeout.
 
 ## Running the server
 

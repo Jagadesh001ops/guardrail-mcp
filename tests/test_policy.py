@@ -87,6 +87,7 @@ def test_default_policy_rule_names(policy):
         "block-power-off",
         "block-recursive-permission-change-on-root",
         "block-fork-bomb",
+        "escalate-opaque-code",
         "block-terraform-destroy",
         "block-terraform-apply-without-plan",
         "escalate-terraform-apply",

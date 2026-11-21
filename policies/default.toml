@@ -78,6 +78,13 @@ decision = "block"
 reason = "fork bomb, which exhausts processes"
 
 [[rules]]
+name = "escalate-opaque-code"
+tool = "shell"
+matcher = "shell.runs_opaque_code"
+decision = "escalate"
+reason = "runs a script file, inline code, or a program by path, which the guardrail cannot read; a person must approve it"
+
+[[rules]]
 name = "block-terraform-destroy"
 tool = "terraform"
 matcher = "terraform.action_is"
