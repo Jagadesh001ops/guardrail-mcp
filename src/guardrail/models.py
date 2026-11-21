@@ -13,10 +13,12 @@ class ExecutionError(RuntimeError):
 
 @dataclass(frozen=True)
 class CommandResult:
-    """What an executor returns: the text to show, and whether the command succeeded."""
+    """What an executor returns: the text to show, whether the command succeeded,
+    and a short summary for the audit log (for example "exit code 3" or "timed out")."""
 
     text: str
     ok: bool
+    summary: str = ""
 
 
 class Decision(str, Enum):
