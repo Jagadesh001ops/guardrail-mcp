@@ -22,8 +22,14 @@ from guardrail.approvals import APPROVED, PENDING, ApprovalStore
 from guardrail.audit import AuditLog
 from guardrail.models import CommandResult, Decision, ExecutionError, ToolCall
 from guardrail.policy import Policy, Verdict
+from guardrail.scripts import fingerprint as _fingerprint_arguments
 
 Executor = Callable[[ToolCall], CommandResult]
+
+
+def fingerprint_call(call: ToolCall) -> dict[str, str | None]:
+    """Hashes of the script files a call will run (empty for non-shell calls)."""
+    return _fingerprint_arguments(call.arguments)
 
 DEFAULT_APPROVAL_TIMEOUT_SECONDS = 120.0
 
@@ -48,6 +54,7 @@ class Gateway:
         poll_interval: float = 0.5,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        fingerprint: Callable[[ToolCall], dict[str, str | None]] = fingerprint_call,
     ) -> None:
         self.policy = policy
         self.audit = audit
@@ -57,6 +64,7 @@ class Gateway:
         self.poll_interval = poll_interval
         self._sleep = sleep
         self._clock = clock
+        self.fingerprint = fingerprint
 
     def handle(self, call: ToolCall) -> Outcome:
         verdict = self.policy.evaluate(call)
@@ -84,7 +92,8 @@ class Gateway:
         return Outcome(decision, reason, executed=True, output=result.text, failed=not result.ok)
 
     def _await_approval(self, call: ToolCall, verdict: Verdict) -> Outcome:
-        request_id = self.approvals.create(call, verdict.reason)
+        files_at_request = self.fingerprint(call)
+        request_id = self.approvals.create(call, verdict.reason, files_at_request)
         deadline = self._clock() + self.approval_timeout
 
         status = self.approvals.status(request_id)
@@ -96,6 +105,11 @@ class Gateway:
             status = self.approvals.expire(request_id)["status"]
 
         if status == APPROVED:
+            # The person approved these exact file contents. Refuse if they have changed since.
+            if self.fingerprint(call) != files_at_request:
+                reason = f"not approved: a file changed after approval (request {request_id})"
+                self.audit.record(call, Verdict(Decision.BLOCK, reason, verdict.rule))
+                return Outcome(Decision.BLOCK, reason, executed=False)
             reason = f"approved by a person (request {request_id})"
             self.audit.record(call, Verdict(Decision.ALLOW, reason, verdict.rule))
             return self._execute(call, Decision.ALLOW, reason, verdict.rule)

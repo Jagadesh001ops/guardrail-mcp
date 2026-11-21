@@ -42,6 +42,9 @@ def main(argv: list[str] | None = None) -> int:
         for r in pending:
             print(f"{r['id']}  {r['created']}  {r['tool']}  {json.dumps(r['arguments'], sort_keys=True)}")
             print(f"    why: {r['reason']}")
+            for path, digest in sorted(r.get("files", {}).items()):
+                shown = digest[:16] + "..." if digest else "missing"
+                print(f"    file: {path}  sha256 {shown}")
         return 0
 
     try:

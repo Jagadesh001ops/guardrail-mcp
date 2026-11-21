@@ -43,8 +43,11 @@ class ApprovalStore:
         tmp.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
         os.replace(tmp, path)
 
-    def create(self, call: ToolCall, reason: str) -> str:
-        """Record a new pending request and return its id."""
+    def create(self, call: ToolCall, reason: str, files: dict[str, str | None] | None = None) -> str:
+        """Record a new pending request and return its id.
+
+        `files` maps each script the command will run to its SHA-256 at request time.
+        """
         self.directory.mkdir(parents=True, exist_ok=True)
         request_id = uuid.uuid4().hex
         self._write(
@@ -55,6 +58,7 @@ class ApprovalStore:
                 "tool": call.tool,
                 "arguments": call.arguments,
                 "reason": reason,
+                "files": files or {},
                 "status": PENDING,
             },
         )

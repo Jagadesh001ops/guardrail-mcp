@@ -30,9 +30,13 @@ Current rules are in `policies/default.toml`. In summary:
 
 Known gaps in the shell rules: they look at command text, not what a command does. Command substitution (`rm -rf $(echo /)`), commands that read their targets from input (`... | xargs rm -rf`), and new or unusual syntax can get past them.
 
+**Script files and approval.** When a call needs approval, the request records the SHA-256 hash of each script file it will run (`guardrail-approvals list` shows them). After approval, the gateway hashes the files again and refuses the call if any of them changed.
+
 Known gaps in the approval step:
-- **An approval covers the command text, not the file it runs.** If `./deploy.sh` is approved and then edited before it runs, the edited version runs. Approval should show, and re-check, the file's hash.
-- **Approval waits block the agent.** Build scripts like `./gradlew build` now need a person to approve them, and the agent waits up to the timeout.
+- **Script files only work with host execution.** The Docker sandbox cannot see files on the host, so `sh deploy.sh` fails there. The hash check matters when `GUARDRAIL_SHELL_SANDBOX=none`.
+- **A small window remains.** A file could change between the final hash check and the moment it is read. Closing that needs the verified bytes to be passed to the process directly.
+- **Remote scripts are not hashed.** `curl ... | sh` has no local file to check. It is approved on the command text alone.
+- **Approval waits block the agent.** Build scripts like `./gradlew build` need a person to approve them, and the agent waits up to the timeout.
 
 ## Running the server
 
