@@ -188,6 +188,37 @@ def shell_fork_bomb(arguments: Mapping[str, Any], params: Mapping[str, Any]) -> 
     return ":(){:|:&};:" in re.sub(r"\s+", "", command)
 
 
+_SCRIPT_RUNNERS = {
+    "sh", "bash", "zsh", "dash", "ksh",
+    "python", "python3", "py", "node", "perl", "ruby", "php", "pwsh", "powershell",
+}
+_HARMLESS_RUNNER_ARGS = {"--version", "-V", "-v", "-h", "--help"}
+_SYSTEM_BIN_PREFIXES = ("/bin/", "/usr/bin/")
+
+
+def _runs_opaque_code(command: list[str]) -> bool:
+    """True if a simple command runs code the guardrail cannot read: a script file, inline
+    code, code read from stdin, a program given by path, or a sourced file."""
+    program, args = command[0], command[1:]
+    if program in {"source", "."} and args:
+        return True
+    if ("/" in program or "\\" in program) and not program.startswith(_SYSTEM_BIN_PREFIXES):
+        return True
+    if program in _SCRIPT_RUNNERS:
+        # `sh -c "..."` was already unpacked by _simple_commands, so any runner left here
+        # is running a file, inline code, or stdin (no arguments means stdin).
+        # Only version and help queries are harmless.
+        if not args:
+            return True
+        return not all(a in _HARMLESS_RUNNER_ARGS for a in args)
+    return False
+
+
+def shell_runs_opaque_code(arguments: Mapping[str, Any], params: Mapping[str, Any]) -> bool:
+    """A command runs code the guardrail cannot inspect (see _runs_opaque_code)."""
+    return any(_runs_opaque_code(c) for c in _commands_of(arguments))
+
+
 def _terraform_action(arguments: Mapping[str, Any]) -> str:
     action = arguments.get("action")
     if not isinstance(action, str):
@@ -217,6 +248,7 @@ MATCHERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any]], bool]] = {
     "shell.write_to_device": shell_write_to_device,
     "shell.recursive_on_targets": shell_recursive_on_targets,
     "shell.fork_bomb": shell_fork_bomb,
+    "shell.runs_opaque_code": shell_runs_opaque_code,
     "terraform.action_is": terraform_action_is,
     "terraform.apply_without_plan": terraform_apply_without_plan,
 }
@@ -230,6 +262,7 @@ MATCHER_PARAMS: dict[str, dict[str, bool]] = {
     "shell.write_to_device": {},
     "shell.recursive_on_targets": {"programs": True, "targets": True},
     "shell.fork_bomb": {},
+    "shell.runs_opaque_code": {},
     "terraform.action_is": {"actions": True},
     "terraform.apply_without_plan": {},
 }
