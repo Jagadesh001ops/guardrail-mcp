@@ -80,6 +80,13 @@ def test_verdict_names_the_rule_that_decided(policy):
 def test_default_policy_rule_names(policy):
     assert [r.name for r in policy.rules] == [
         "block-recursive-forced-rm-of-root",
+        "block-find-delete",
+        "block-disk-overwrite",
+        "block-redirect-to-device",
+        "block-format-filesystem",
+        "block-power-off",
+        "block-recursive-permission-change-on-root",
+        "block-fork-bomb",
         "block-terraform-destroy",
         "block-terraform-apply-without-plan",
         "escalate-terraform-apply",

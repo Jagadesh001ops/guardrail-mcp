@@ -10,6 +10,10 @@
 #   params    optional settings for that matcher
 #   decision  allow | block | dry_run | escalate
 #   reason    explanation recorded with every decision this rule makes
+#
+# Shell rules see through wrappers (sudo, env, nohup, timeout, ...) and
+# `sh -c "..."` nesting. They are pattern-based, so they reduce risk rather
+# than prove a command safe. Calls that match no rule are allowed.
 
 default_decision = "allow"
 
@@ -17,9 +21,61 @@ default_decision = "allow"
 name = "block-recursive-forced-rm-of-root"
 tool = "shell"
 matcher = "shell.rm_recursive_force"
-params = { targets = ["/", "/*"] }
+params = { targets = ["/", "/*", "/bin", "/boot", "/etc", "/home", "/home/*", "/lib", "/root", "/sbin", "/usr", "/var", "~", "~/", "~/*", "$HOME", "$HOME/", "$HOME/*"] }
 decision = "block"
-reason = "recursive forced delete of the filesystem root"
+reason = "recursive forced delete of the filesystem root or a system or home directory"
+
+[[rules]]
+name = "block-find-delete"
+tool = "shell"
+matcher = "shell.find_destructive"
+decision = "block"
+reason = "find that deletes files (-delete, or rm through -exec)"
+
+[[rules]]
+name = "block-disk-overwrite"
+tool = "shell"
+matcher = "shell.dd_to_device"
+decision = "block"
+reason = "dd writing to a device file"
+
+[[rules]]
+name = "block-redirect-to-device"
+tool = "shell"
+matcher = "shell.write_to_device"
+decision = "block"
+reason = "shell redirect writing to a device file"
+
+[[rules]]
+name = "block-format-filesystem"
+tool = "shell"
+matcher = "shell.program_in"
+params = { programs = ["mkfs"], prefixes = ["mkfs."] }
+decision = "block"
+reason = "creating a filesystem, which destroys existing data"
+
+[[rules]]
+name = "block-power-off"
+tool = "shell"
+matcher = "shell.program_in"
+params = { programs = ["shutdown", "reboot", "halt", "poweroff"] }
+decision = "block"
+reason = "shutting down or rebooting the machine"
+
+[[rules]]
+name = "block-recursive-permission-change-on-root"
+tool = "shell"
+matcher = "shell.recursive_on_targets"
+params = { programs = ["chmod", "chown"], targets = ["/", "/*", "/etc", "/usr", "/var", "/home", "~", "~/", "$HOME"] }
+decision = "block"
+reason = "recursive permission or ownership change on a system directory"
+
+[[rules]]
+name = "block-fork-bomb"
+tool = "shell"
+matcher = "shell.fork_bomb"
+decision = "block"
+reason = "fork bomb, which exhausts processes"
 
 [[rules]]
 name = "block-terraform-destroy"
