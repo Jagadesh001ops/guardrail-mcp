@@ -28,6 +28,64 @@ def test_argv_mounts_no_host_folders():
     assert not any(a.startswith("type=bind") for a in argv)
 
 
+def test_staged_scripts_are_mounted_read_only_as_work(tmp_path):
+    argv = sandbox.build_docker_argv("sh deploy.sh", "guardrail-test", stage_dir=tmp_path)
+    mount = argv[argv.index("--mount") + 1]
+
+    assert mount == f"type=bind,source={tmp_path},target=/work,readonly"
+    assert "/work:rw,size=64m,mode=1777" not in argv  # no writable /work when scripts are staged
+    assert "/tmp:rw,size=64m,mode=1777" in argv  # scratch space remains
+
+
+def test_stage_scripts_copies_verified_bytes(tmp_path):
+    import hashlib
+
+    base = tmp_path / "project"
+    (base / "tools").mkdir(parents=True)
+    script = base / "tools" / "deploy.sh"
+    script.write_bytes(b"echo deploy\n")
+    dest = tmp_path / "stage"
+    dest.mkdir()
+    digest = hashlib.sha256(b"echo deploy\n").hexdigest()
+
+    staged = sandbox.stage_scripts({str(script): digest}, base, dest)
+
+    assert staged is True
+    assert (dest / "tools" / "deploy.sh").read_bytes() == b"echo deploy\n"
+
+
+def test_stage_scripts_refuses_a_changed_file(tmp_path):
+    import hashlib
+
+    script = tmp_path / "deploy.sh"
+    script.write_bytes(b"echo deploy\n")
+    approved = hashlib.sha256(b"echo deploy\n").hexdigest()
+    script.write_bytes(b"rm -rf ~\n")  # edited after approval
+    dest = tmp_path / "stage"
+    dest.mkdir()
+
+    with pytest.raises(ExecutionError, match="changed after approval"):
+        sandbox.stage_scripts({str(script): approved}, tmp_path, dest)
+    assert list(dest.iterdir()) == []  # nothing was copied
+
+
+def test_stage_scripts_refuses_paths_outside_the_working_directory(tmp_path):
+    outside = tmp_path / "outside" / "evil.sh"
+    outside.parent.mkdir()
+    outside.write_bytes(b"echo hi")
+    base = tmp_path / "project"
+    base.mkdir()
+
+    with pytest.raises(ExecutionError, match="outside the working directory"):
+        sandbox.stage_scripts({str(outside): "0" * 64}, base, tmp_path / "stage")
+
+
+def test_stage_scripts_skips_files_that_did_not_exist_at_approval(tmp_path):
+    dest = tmp_path / "stage"
+    dest.mkdir()
+    assert sandbox.stage_scripts({str(tmp_path / "missing.sh"): None}, tmp_path, dest) is False
+
+
 def test_command_is_passed_as_a_single_argument_to_sh():
     argv = sandbox.build_docker_argv("echo hi; rm -rf /", "guardrail-test")
     assert argv[-3:] == ["sh", "-c", "echo hi; rm -rf /"]

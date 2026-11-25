@@ -60,6 +60,63 @@ def test_failing_command_in_container_is_not_ok():
     assert "exit code: 0" not in result.text
 
 
+def test_staged_script_runs_inside_the_container(tmp_path, monkeypatch):
+    from guardrail.models import ExecutionError  # noqa: F401
+    from guardrail.scripts import fingerprint
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "deploy.sh").write_text("echo from-staged-script; id -u\n", encoding="utf-8", newline="\n")
+    approved = fingerprint({"command": "sh deploy.sh"})
+
+    result = run_in_sandbox("sh deploy.sh", files=approved)
+
+    assert result.ok is True, result.text
+    assert "from-staged-script" in result.text
+    assert "65534" in result.text  # still the unprivileged user
+
+
+def test_staged_script_cannot_modify_itself_or_the_host_file(tmp_path, monkeypatch):
+    from guardrail.scripts import fingerprint
+
+    monkeypatch.chdir(tmp_path)
+    original = "echo hi >> deploy.sh\n"
+    (tmp_path / "deploy.sh").write_text(original, encoding="utf-8", newline="\n")
+    approved = fingerprint({"command": "sh deploy.sh"})
+
+    result = run_in_sandbox("sh deploy.sh", files=approved)
+
+    assert result.ok is False  # the append fails: /work is read-only
+    assert (tmp_path / "deploy.sh").read_text(encoding="utf-8") == original
+
+
+def test_other_host_files_stay_invisible(tmp_path, monkeypatch):
+    from guardrail.scripts import fingerprint
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "deploy.sh").write_text("cat secret.txt\n", encoding="utf-8", newline="\n")
+    (tmp_path / "secret.txt").write_text("host secret", encoding="utf-8")
+    approved = fingerprint({"command": "sh deploy.sh"})
+
+    result = run_in_sandbox("sh deploy.sh", files=approved)
+
+    assert result.ok is False
+    assert "host secret" not in result.text
+
+
+def test_script_edited_after_approval_is_refused_before_the_container_starts(tmp_path, monkeypatch):
+    from guardrail.models import ExecutionError
+    from guardrail.scripts import fingerprint
+
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "deploy.sh"
+    script.write_text("echo safe\n", encoding="utf-8", newline="\n")
+    approved = fingerprint({"command": "sh deploy.sh"})
+    script.write_text("echo tampered\n", encoding="utf-8", newline="\n")
+
+    with pytest.raises(ExecutionError, match="changed after approval"):
+        run_in_sandbox("sh deploy.sh", files=approved)
+
+
 def test_shell_executor_uses_the_sandbox_by_default():
     execute = make_executor()
     result = execute(ToolCall(tool="shell", arguments={"command": "id -u"}))
