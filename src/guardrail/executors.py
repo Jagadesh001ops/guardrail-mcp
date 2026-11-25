@@ -7,7 +7,7 @@ Each executor returns a CommandResult. A non-zero exit code means ok=False.
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from guardrail.models import CommandResult, ExecutionError, ToolCall
@@ -97,19 +97,22 @@ def run_terraform(call: ToolCall, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> C
 SHELL_SANDBOX_MODES = {"docker", "none"}
 
 
-def make_executor(shell_sandbox: str = "docker") -> Callable[[ToolCall], CommandResult]:
+def make_executor(
+    shell_sandbox: str = "docker",
+) -> Callable[[ToolCall, Mapping[str, str | None] | None], CommandResult]:
     """Build the function that carries out allowed calls.
 
-    shell_sandbox="docker" (default) runs shell commands in a container.
+    shell_sandbox="docker" (default) runs shell commands in a container. Script files the
+    command runs are copied in after their hashes are checked (see sandbox.py).
     shell_sandbox="none" runs them directly on this machine. Use only for development.
     """
     if shell_sandbox not in SHELL_SANDBOX_MODES:
         raise ValueError(f"shell_sandbox must be one of {sorted(SHELL_SANDBOX_MODES)}, not {shell_sandbox!r}")
 
-    def execute(call: ToolCall) -> CommandResult:
+    def execute(call: ToolCall, approved_files: Mapping[str, str | None] | None = None) -> CommandResult:
         if call.tool == "shell":
             if shell_sandbox == "docker":
-                return _shell_in_sandbox(call)
+                return _shell_in_sandbox(call, approved_files)
             return run_shell(call)
         if call.tool == "terraform":
             return run_terraform(call)
@@ -118,8 +121,8 @@ def make_executor(shell_sandbox: str = "docker") -> Callable[[ToolCall], Command
     return execute
 
 
-def _shell_in_sandbox(call: ToolCall) -> CommandResult:
+def _shell_in_sandbox(call: ToolCall, approved_files: Mapping[str, str | None] | None) -> CommandResult:
     command = call.arguments.get("command")
     if not isinstance(command, str):
         raise ValueError("shell call needs a string 'command' argument")
-    return run_in_sandbox(command)
+    return run_in_sandbox(command, files=approved_files)

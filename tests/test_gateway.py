@@ -11,11 +11,13 @@ from guardrail.policy import Policy, Rule
 class FakeExecutor:
     def __init__(self, output="ran", ok=True):
         self.calls = []
+        self.files = []
         self.output = output
         self.ok = ok
 
-    def __call__(self, call):
+    def __call__(self, call, approved_files=None):
         self.calls.append(call)
+        self.files.append(approved_files)
         return CommandResult(text=self.output, ok=self.ok)
 
 
@@ -79,7 +81,7 @@ def test_dry_run_and_escalate_never_reach_executor(tmp_path, decision):
 def test_audit_is_written_before_executor_runs(tmp_path):
     seen_during_execution = []
 
-    def executor(call):
+    def executor(call, approved_files=None):
         seen_during_execution.append(len(audit.read()))
         return CommandResult(text="ok", ok=True)
 
@@ -195,7 +197,7 @@ def test_escalate_without_approval_store_still_refuses(tmp_path):
 
 
 def test_failing_command_is_recorded_in_audit(tmp_path):
-    failing = lambda call: CommandResult(text="exit code: 3", ok=False, summary="exit code 3")  # noqa: E731
+    failing = lambda call, files=None: CommandResult(text="exit code: 3", ok=False, summary="exit code 3")  # noqa: E731
     gateway, audit, _ = make_gateway(tmp_path, Policy(rules=()), executor=failing)
 
     outcome = gateway.handle(shell("false"))
@@ -217,7 +219,7 @@ def test_successful_command_is_not_recorded_as_failure(tmp_path):
 def test_failed_execution_is_recorded_in_audit(tmp_path):
     from guardrail.models import ExecutionError
 
-    def broken(call):
+    def broken(call, approved_files=None):
         raise ExecutionError("terraform is not installed or not on PATH")
 
     gateway, audit, _ = make_gateway(tmp_path, Policy(rules=()), executor=broken)

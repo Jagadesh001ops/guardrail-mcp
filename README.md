@@ -32,9 +32,13 @@ Known gaps in the shell rules: they look at command text, not what a command doe
 
 **Script files and approval.** When a call needs approval, the request records the SHA-256 hash of each script file it will run (`guardrail-approvals list` shows them). After approval, the gateway hashes the files again and refuses the call if any of them changed.
 
+**Script files in the sandbox.** The container cannot see your files, so approved scripts are copied in. Each script is read once, its bytes are checked against the approved hash, and the verified copy is mounted read-only as `/work`. The container never sees the live file, so the file cannot change between the check and the run. This means:
+- Only scripts inside the working directory can run. A path outside it, or using `..`, is refused.
+- A script can use `/tmp` for scratch space, but `/work` is read-only.
+- A script cannot read other files from your machine. A script that needs other project files will fail.
+
 Known gaps in the approval step:
-- **Script files only work with host execution.** The Docker sandbox cannot see files on the host, so `sh deploy.sh` fails there. The hash check matters when `GUARDRAIL_SHELL_SANDBOX=none`.
-- **A small window remains.** A file could change between the final hash check and the moment it is read. Closing that needs the verified bytes to be passed to the process directly.
+- **Host mode keeps a small window.** With `GUARDRAIL_SHELL_SANDBOX=none`, a file could change between the final hash check and the moment it is read. The sandbox does not have this window.
 - **Remote scripts are not hashed.** `curl ... | sh` has no local file to check. It is approved on the command text alone.
 - **Approval waits block the agent.** Build scripts like `./gradlew build` need a person to approve them, and the agent waits up to the timeout.
 

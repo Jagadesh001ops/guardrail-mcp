@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from guardrail.matchers import _SCRIPT_RUNNERS, _SYSTEM_BIN_PREFIXES, _simple_commands
+from guardrail.matchers import _SCRIPT_RUNNERS, _SYSTEM_BIN_PREFIXES, UnparseableInput, _simple_commands
 
 # Options that mean "the code is inline", so there is no file to hash.
 _INLINE_CODE_OPTIONS = {"-c", "-e", "-m"}
@@ -54,8 +54,12 @@ def fingerprint(arguments: Mapping[str, Any]) -> dict[str, str | None]:
     command = arguments.get("command")
     if not isinstance(command, str):
         return {}
+    try:
+        written_paths = referenced_files(command)
+    except UnparseableInput:
+        return {}  # a command the rules cannot parse has no files we can name
     result: dict[str, str | None] = {}
-    for written in referenced_files(command):
+    for written in written_paths:
         path = Path(written).absolute()
         result[str(path)] = _sha256(path)
     return result
