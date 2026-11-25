@@ -117,6 +117,47 @@ def test_script_edited_after_approval_is_refused_before_the_container_starts(tmp
         run_in_sandbox("sh deploy.sh", files=approved)
 
 
+def test_approved_script_runs_end_to_end_through_the_gateway(tmp_path, monkeypatch):
+    from guardrail.approvals import ApprovalStore
+    from guardrail.audit import AuditLog
+    from guardrail.gateway import Gateway
+    from guardrail.models import Decision
+    from guardrail.policy import Policy, Rule
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "deploy.sh").write_text("echo deployed-in-sandbox\n", encoding="utf-8", newline="\n")
+    store = ApprovalStore(tmp_path / "approvals")
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    now = [0.0]
+
+    def sleep(seconds):
+        now[0] += seconds
+        for record in store.list_pending():
+            store.decide(record["id"], approve=True)  # the person approves
+
+    policy = Policy(
+        rules=(
+            Rule(
+                name="escalate-scripts",
+                tool="shell",
+                matcher="shell.runs_opaque_code",
+                decision=Decision.ESCALATE,
+                reason="runs a script",
+            ),
+        )
+    )
+    gateway = Gateway(
+        policy, audit, make_executor("docker"), approvals=store, approval_timeout=10.0,
+        poll_interval=1.0, sleep=sleep, clock=lambda: now[0],
+    )
+
+    outcome = gateway.handle(ToolCall(tool="shell", arguments={"command": "sh deploy.sh"}))
+
+    assert outcome.executed is True and outcome.failed is False, outcome.output
+    assert "deployed-in-sandbox" in outcome.output
+    assert [r["decision"] for r in audit.read()] == ["escalate", "allow"]
+
+
 def test_shell_executor_uses_the_sandbox_by_default():
     execute = make_executor()
     result = execute(ToolCall(tool="shell", arguments={"command": "id -u"}))

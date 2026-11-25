@@ -24,14 +24,17 @@ from guardrail.models import CommandResult, Decision, ExecutionError, ToolCall
 from guardrail.policy import Policy, Verdict
 from guardrail.scripts import fingerprint as _fingerprint_arguments
 
-Executor = Callable[[ToolCall], CommandResult]
+FileHashes = dict[str, "str | None"]
 
-
-def fingerprint_call(call: ToolCall) -> dict[str, str | None]:
-    """Hashes of the script files a call will run (empty for non-shell calls)."""
-    return _fingerprint_arguments(call.arguments)
+# An executor receives the call and the hashes of the script files it is allowed to run.
+Executor = Callable[[ToolCall, FileHashes], CommandResult]
 
 DEFAULT_APPROVAL_TIMEOUT_SECONDS = 120.0
+
+
+def fingerprint_call(call: ToolCall) -> FileHashes:
+    """Hashes of the script files a call will run (empty for non-shell calls)."""
+    return _fingerprint_arguments(call.arguments)
 
 
 @dataclass(frozen=True)
@@ -71,7 +74,7 @@ class Gateway:
         self.audit.record(call, verdict)
 
         if verdict.decision == Decision.ALLOW:
-            return self._execute(call, verdict.decision, verdict.reason, verdict.rule)
+            return self._execute(call, verdict.decision, verdict.reason, verdict.rule, self.fingerprint(call))
 
         if verdict.decision == Decision.ESCALATE and self.approvals is not None:
             return self._await_approval(call, verdict)
@@ -79,9 +82,11 @@ class Gateway:
         # BLOCK, DRY_RUN, and ESCALATE without an approval store never reach the executor.
         return Outcome(verdict.decision, verdict.reason, executed=False)
 
-    def _execute(self, call: ToolCall, decision: Decision, reason: str, rule: str | None) -> Outcome:
+    def _execute(
+        self, call: ToolCall, decision: Decision, reason: str, rule: str | None, files: FileHashes
+    ) -> Outcome:
         try:
-            result = self.executor(call)
+            result = self.executor(call, files)
         except ExecutionError as exc:
             # The policy allowed the call, but it did not run. Say so in the audit log.
             self.audit.record(call, Verdict(decision, f"execution failed: {exc}", rule))
@@ -112,7 +117,8 @@ class Gateway:
                 return Outcome(Decision.BLOCK, reason, executed=False)
             reason = f"approved by a person (request {request_id})"
             self.audit.record(call, Verdict(Decision.ALLOW, reason, verdict.rule))
-            return self._execute(call, Decision.ALLOW, reason, verdict.rule)
+            # The executor gets the approved hashes, so a sandbox can check the bytes it copies in.
+            return self._execute(call, Decision.ALLOW, reason, verdict.rule, files_at_request)
 
         reason = f"not approved (request {request_id}: {status})"
         self.audit.record(call, Verdict(Decision.BLOCK, reason, verdict.rule))

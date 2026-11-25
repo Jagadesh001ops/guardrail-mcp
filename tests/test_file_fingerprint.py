@@ -71,9 +71,11 @@ ESCALATE_SCRIPTS = Policy(
 class Recorder:
     def __init__(self):
         self.calls = []
+        self.files = []
 
-    def __call__(self, call):
+    def __call__(self, call, approved_files=None):
         self.calls.append(call)
+        self.files.append(approved_files)
         return CommandResult(text="ran", ok=True)
 
 
@@ -124,6 +126,31 @@ def test_approved_unchanged_file_runs(tmp_path, monkeypatch):
     assert outcome.executed is True
     assert len(executor.calls) == 1
     assert [r["decision"] for r in audit.read()] == ["escalate", "allow"]
+
+
+def test_executor_receives_the_approved_hashes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "deploy.sh").write_text("echo deploy", encoding="utf-8")
+
+    _, executor, _, _ = run_with_human(tmp_path, approve_now)
+
+    assert executor.files == [{str(tmp_path / "deploy.sh"): sha("echo deploy")}]
+
+
+def test_allowed_call_gets_current_hashes_without_approval(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "deploy.sh").write_text("echo deploy", encoding="utf-8")
+    executor = Recorder()
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    gateway = Gateway(Policy(rules=()), audit, executor)
+
+    gateway.handle(ToolCall(tool="shell", arguments={"command": "sh deploy.sh"}))
+
+    assert executor.files == [{str(tmp_path / "deploy.sh"): sha("echo deploy")}]
+
+
+def test_unparseable_command_has_no_files_and_does_not_crash():
+    assert fingerprint({"command": 'echo "unclosed'}) == {}
 
 
 def test_file_changed_after_request_is_refused(tmp_path, monkeypatch):
